@@ -39,7 +39,7 @@ pct_miss(Output.Areas2)
 gg_miss_var(Output.Areas2, show_pct = TRUE)
 #fill in missing vale with mean of its contiguous neighbours
 index <- st_touches(Output.Areas2, Output.Areas2)
-
+output<-Output.Areas2
 output <- output %>% 
   mutate(greenspace = ifelse(is.na(greenspace),
                              apply(index, 1, function(i){mean(.$greenspace[i])}),
@@ -50,8 +50,10 @@ output <- output %>%
                              apply(index, 1, function(i){mean(.$protected_[i])}),
                              protected_))
 
-
+pct_miss(output)
+gg_miss_var(output, show_pct = TRUE)
 summary(output)
+new_data <- output %>% filter_all(any_vars(is.na(.))) 
 Output.Areas2 =   output
 summary(Output.Areas2)
 # merge two data frames by LAD code
@@ -104,7 +106,7 @@ invisible(lapply(pkgs, library, character.only = TRUE))
 nice_table(nice_assumptions(model), col.format.p = 2:4)
 View(nice_assumptions(model))
 #check VIF values
-print(check_collinearity(model2))
+print(check_collinearity(model))
 #remove independent variables that produce a variance inflation factor above 5, but keep some to maintain information
 
 
@@ -113,10 +115,10 @@ model = lm(HI_2021 ~ bmean_recordCount+ bmean_speciesCount+ pmean_recordCount + 
 
 
 model2 = lm(HI_2021 ~ bmean_recordCount+ bmean_speciesCount+ pmean_recordCount + pmean_speciesCount + areakm + Pop_densit + unemployme + greenspace + protected_+NDVI_mean +bluespace_ + elevation_ + temp_c 
-            + L4Observat + app_Observ +gdp_capita,data = LAD)
+            + L4Observat + app_Observ +gdp_capita,data = Output.Areas2)
 
 model3 = lm(HI_2021 ~ mmean_recordCount+ Mmean_speciesCount+ pmean_recordCount + pmean_speciesCount + areakm + Pop_densit + unemployme + greenspace + protected_+NDVI_mean +bluespace_ + elevation_ + temp_c 
-            + L4Observat + app_Observ +gdp_capita,data = LAD)
+            + L4Observat + app_Observ +gdp_capita,data = Output.Areas2)
 
 plot(model3)
 check_model(model2)
@@ -338,22 +340,28 @@ names(LAD)
 library(spatialRF)
 library(randomForest)
 library(randomForestExplainer)
+
+
 # Extract predictor variables and response variable
 # Modify this based on your data structure"
-predictor <- LAD[, c("mmean_recordCount","Mmean_speciesCount", "pmean_recordCount", "pmean_speciesCount" ,"areakm", "Pop_densit" , "unemployme","greenspace","protected_","NDVI_mean","bluespace_","elevation_","temp_c" 
+
+predictor <- LAD1[, c("mmean_recordCount","Mmean_speciesCount", "pmean_recordCount", "pmean_speciesCount" ,"areakm", "Pop_densit" , "unemployme","greenspace","protected_","NDVI_mean","bluespace_","elevation_","temp_c" 
                       ,"L4Observat","app_Observ","gdp_capita")]
-response <- LAD$HI_2021
+response <- LAD1$HI_2021
 
 #names of the response variable and the predictors
 dependent.variable.name <- "HI_2021"
 predictor.variable.names <- colnames(predictor)
+predictor.variable.names
 # Calculate distance matrix
 distance_matrix <- st_distance(LAD$geometry)
 #coordinates of the cases
-xy <- LAD[, c("X.x", "Y")]
+xy <- LAD1[, c("X.x", "Y")]
 
 #distance matrix
-distance.matrix <- distance_matrix
+
+dist_km = as.data.frame(distance.matrix)
+distkm = drop_units(dist_km)
 
 #distance thresholds (same units as distance_matrix)
 distance.thresholds <- c(0, 100, 200, 400, 800)
@@ -362,7 +370,7 @@ preference.order <- c("mmean_recordCount","Mmean_speciesCount", "pmean_recordCou
                       ,"L4Observat","app_Observ","gdp_capita")
 
 predictor.variable.names <- spatialRF::auto_cor(
-  x = LAD[, predictor.variable.names],
+  x = LAD1[, predictor.variable.names],
   cor.threshold = 0.6,
   preference.order = preference.order
 ) %>% 
@@ -370,32 +378,33 @@ predictor.variable.names <- spatialRF::auto_cor(
     vif.threshold = 10,
     preference.order = preference.order
   )
+str(LAD1[, predictor.variable.names])
+is.data.frame(LAD[, predictor.variable.names])
+
 #random seed for reproducibility
 random.seed <- 1
 
 # Split the data into training and testing sets
 set.seed(123)
-train_indices <- sample(1:nrow(LAD), 0.8 * nrow(LAD))
-train_data <- LAD[train_indices, ]
+train_indices <- sample(1:nrow(LAD1), 0.8 * nrow(LAD))
+train_data <- LAD1[train_indices, ]
 test_data <- LAD[-train_indices, ]
 # Train a non spatial random forest model
-str(LAD)
+str(LAD1)
 model.non.spatial <- spatialRF::rf(
-  data = LAD,
+  data = LAD1,
   dependent.variable.name = dependent.variable.name,
   predictor.variable.names = predictor.variable.names,
-  distance.matrix = distance.matrix,
+  distance.matrix = distkm,
   distance.thresholds = distance.thresholds,
   xy = xy, #not needed by rf, but other functions read it from the model
   seed = random.seed,
   verbose = FALSE,
   n.cores = 4
 )
-# extracting positions of NA values 
-print ("Row and Col positions of NA values") 
-which(is.na(LAD), arr.ind=TRUE)
-#impute na values with 0
-columns_to_impute <- c("A", "C")
+
+
+
 # Adjust parameters as needed
 #########
 fit_3_err <- errorsarlm(HI_2021 ~ mmean_recordCount+ Mmean_speciesCount+ pmean_recordCount + pmean_speciesCount + areakm + Pop_densit + unemployme + greenspace + protected_+NDVI_mean +bluespace_ + elevation_ + temp_c 
